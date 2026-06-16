@@ -8,14 +8,11 @@ local NETHER_ORES = {
 	["minecraft:gilded_blackstone"] = true,
 }
 
-local startX, startY, startZ = 0, 0, 0
 local posX, posZ = 0, 0
 local facing = 0
 
 local function checkFuel()
-	if turtle.getFuelLevel() == "unlimited" then
-		return
-	end
+	if turtle.getFuelLevel() == "unlimited" then return end
 	if turtle.getFuelLevel() < 50 then
 		turtle.select(FUEL_SLOT)
 		turtle.refuel()
@@ -24,9 +21,7 @@ end
 
 local function isInventoryFull()
 	for slot = 2, 16 do
-		if turtle.getItemCount(slot) == 0 then
-			return false
-		end
+		if turtle.getItemCount(slot) == 0 then return false end
 	end
 	return true
 end
@@ -42,30 +37,15 @@ local function selectNetherrack()
 	return false
 end
 
-local function processBlock(direction)
-	local inspect, dig, place, detect
-	if direction == "up" then
-		inspect, dig, place, detect = turtle.inspectUp, turtle.digUp, turtle.placeUp, turtle.detectUp
-	else
-		inspect, dig, place, detect = turtle.inspectDown, turtle.digDown, turtle.placeDown, turtle.detectDown
-	end
-
-	local success, data = inspect()
-
-	if success then
-		if NETHER_ORES[data.name] then
-			dig()
-		end
-	else
-		if selectNetherrack() then
-			place()
+local function countNetherrack()
+	local count = 0
+	for slot = 1, 16 do
+		local item = turtle.getItemDetail(slot)
+		if item and item.name == NETHERRACK_NAME then
+			count = count + item.count
 		end
 	end
-end
-
-local function processUpDown()
-	processBlock("up")
-	processBlock("down")
+	return count
 end
 
 local function forward()
@@ -74,14 +54,10 @@ local function forward()
 		turtle.dig()
 		sleep(0.2)
 	end
-	if facing == 0 then
-		posZ = posZ + 1
-	elseif facing == 1 then
-		posX = posX + 1
-	elseif facing == 2 then
-		posZ = posZ - 1
-	elseif facing == 3 then
-		posX = posX - 1
+	if facing == 0 then posZ = posZ + 1
+	elseif facing == 1 then posX = posX + 1
+	elseif facing == 2 then posZ = posZ - 1
+	elseif facing == 3 then posX = posX - 1
 	end
 end
 
@@ -101,31 +77,103 @@ local function faceDirection(target)
 	end
 end
 
-local function returnAndUnload()
+local function goHome()
 	if posX > 0 then
 		faceDirection(3)
-		for i = 1, posX do
-			forward()
-		end
+		for i = 1, posX do forward() end
 	elseif posX < 0 then
 		faceDirection(1)
-		for i = 1, -posX do
-			forward()
-		end
+		for i = 1, -posX do forward() end
 	end
-
 	if posZ > 0 then
 		faceDirection(2)
-		for i = 1, posZ do
-			forward()
-		end
+		for i = 1, posZ do forward() end
 	elseif posZ < 0 then
 		faceDirection(0)
-		for i = 1, -posZ do
-			forward()
+		for i = 1, -posZ do forward() end
+	end
+end
+
+local function returnToPosition(targetX, targetZ, targetFacing)
+	if targetX > 0 then
+		faceDirection(1)
+		for i = 1, targetX do forward() end
+	elseif targetX < 0 then
+		faceDirection(3)
+		for i = 1, -targetX do forward() end
+	end
+	if targetZ > 0 then
+		faceDirection(0)
+		for i = 1, targetZ do forward() end
+	elseif targetZ < 0 then
+		faceDirection(2)
+		for i = 1, -targetZ do forward() end
+	end
+	faceDirection(targetFacing)
+end
+
+local function restockNetherrack()
+	local savedX, savedZ, savedFacing = posX, posZ, facing
+	print("No netherrack — restocking...")
+	goHome()
+
+	-- Grab up to 4 stacks (256) of netherrack from chest below
+	local attempts = 0
+	while countNetherrack() < 256 and attempts < 20 do
+		if not turtle.suckDown(64) then break end
+		attempts = attempts + 1
+	end
+
+	-- Drop back anything that isn't netherrack (keep fuel slot)
+	for slot = 2, 16 do
+		local item = turtle.getItemDetail(slot)
+		if item and item.name ~= NETHERRACK_NAME then
+			turtle.select(slot)
+			turtle.dropDown()
 		end
 	end
 
+	turtle.select(FUEL_SLOT)
+	print("Returning to work...")
+	returnToPosition(savedX, savedZ, savedFacing)
+end
+
+local function placeNetherrack(place)
+	if not selectNetherrack() then
+		restockNetherrack()
+	end
+	if selectNetherrack() then
+		place()
+	end
+end
+
+local function processBlock(direction)
+	local inspect, dig, place
+	if direction == "up" then
+		inspect, dig, place = turtle.inspectUp, turtle.digUp, turtle.placeUp
+	else
+		inspect, dig, place = turtle.inspectDown, turtle.digDown, turtle.placeDown
+	end
+
+	local success, data = inspect()
+
+	if success then
+		if NETHER_ORES[data.name] then
+			dig()
+			placeNetherrack(place)
+		end
+	else
+		placeNetherrack(place)
+	end
+end
+
+local function processUpDown()
+	processBlock("up")
+	processBlock("down")
+end
+
+local function returnAndUnload()
+	goHome()
 	for slot = 2, 16 do
 		local item = turtle.getItemDetail(slot)
 		if item and item.name ~= NETHERRACK_NAME then
@@ -134,7 +182,7 @@ local function returnAndUnload()
 		end
 	end
 	turtle.select(FUEL_SLOT)
-	print("Done.")
+	print("Unloaded.")
 end
 
 local SIZE = 11
@@ -147,19 +195,7 @@ local function mineArea()
 			if isInventoryFull() then
 				local savedX, savedZ, savedFacing = posX, posZ, facing
 				returnAndUnload()
-				if savedX > 0 then
-					faceDirection(1)
-					for i = 1, savedX do
-						forward()
-					end
-				end
-				if savedZ > 0 then
-					faceDirection(0)
-					for i = 1, savedZ do
-						forward()
-					end
-				end
-				faceDirection(savedFacing)
+				returnToPosition(savedX, savedZ, savedFacing)
 			end
 
 			if col < SIZE then
@@ -169,13 +205,13 @@ local function mineArea()
 
 		if row < SIZE then
 			if row % 2 == 1 then
-				turnRight()
+				turnLeft()
 				forward()
-				turnRight()
+				turnLeft()
 			else
-				turnLeft()
+				turnRight()
 				forward()
-				turnLeft()
+				turnRight()
 			end
 		end
 	end
