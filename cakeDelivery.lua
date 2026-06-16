@@ -31,6 +31,8 @@ local function placeCakesAround()
 	end
 end
 
-suckCakes()
-placeCakesAround()
-print("Done!")
+while true do
+	suckCakes()
+	placeCakesAround()
+	print("Done!")
+end
